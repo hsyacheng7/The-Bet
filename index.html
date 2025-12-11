@@ -265,15 +265,20 @@
       );
     };
 
-    // 2. Matching Game
+    // 2. Matching Game (Multi-Page Version)
     const GameMatching = ({ onFinish, recordMistake }) => {
+      const [round, setRound] = useState(1); // Track current page
       const [cards, setCards] = useState({ left: [], right: [] });
       const [selectedLeft, setSelectedLeft] = useState(null);
       const [selectedRight, setSelectedRight] = useState(null);
-      const [matchedIds, setMatchedIds] = useState([]);
+      const [matchedIds, setMatchedIds] = useState([]); // IDs matched in CURRENT round
+      const [totalMatched, setTotalMatched] = useState(0); // IDs matched across all rounds
       const [timer, setTimer] = useState(0);
       const [gameActive, setGameActive] = useState(false);
       const [isFinished, setIsFinished] = useState(false);
+      
+      // Store the data for both rounds
+      const roundsData = useRef({ 1: [], 2: [] });
 
       useEffect(() => {
         let interval;
@@ -284,14 +289,34 @@
       }, [gameActive, isFinished]);
 
       const startGame = () => {
-        const shuffledLeft = [...vocabData].sort(() => 0.5 - Math.random());
-        const shuffledRight = [...vocabData].sort(() => 0.5 - Math.random());
+        // Shuffle all data
+        const shuffledAll = [...vocabData].sort(() => 0.5 - Math.random());
+        // Split into two chunks (12 and 11)
+        const mid = Math.ceil(shuffledAll.length / 2);
+        const r1 = shuffledAll.slice(0, mid);
+        const r2 = shuffledAll.slice(mid);
         
-        setCards({ left: shuffledLeft, right: shuffledRight });
-        setMatchedIds([]);
+        roundsData.current = { 1: r1, 2: r2 };
+        setTotalMatched(0);
         setTimer(0);
         setGameActive(true);
         setIsFinished(false);
+        startRound(1);
+      };
+
+      const startRound = (roundNum) => {
+        setRound(roundNum);
+        setMatchedIds([]);
+        setSelectedLeft(null);
+        setSelectedRight(null);
+        
+        const currentWords = roundsData.current[roundNum];
+        
+        // Shuffle for left and right columns
+        const shuffledLeft = [...currentWords].sort(() => 0.5 - Math.random());
+        const shuffledRight = [...currentWords].sort(() => 0.5 - Math.random());
+        
+        setCards({ left: shuffledLeft, right: shuffledRight });
       };
 
       const handleSelectLeft = (id) => {
@@ -309,13 +334,25 @@
       const checkMatch = (leftId, rightId) => {
         if (leftId && rightId) {
           if (leftId === rightId) {
+            // Match!
             const newMatched = [...matchedIds, leftId];
             setMatchedIds(newMatched);
+            setTotalMatched(prev => prev + 1);
             speak("Correct");
-            if (newMatched.length === vocabData.length) {
-              endGame(true);
+            
+            // Check if round complete
+            if (newMatched.length === roundsData.current[round].length) {
+              if (round === 1) {
+                 setTimeout(() => {
+                     speak("Next page");
+                     startRound(2);
+                 }, 500);
+              } else {
+                 endGame(true);
+              }
             }
           } else {
+            // No match
             speak("Wrong");
             recordMistake(leftId);
             setTimeout(() => {
@@ -332,8 +369,9 @@
       const endGame = (completed) => {
         setIsFinished(true);
         setGameActive(false);
+        // User must complete both pages AND be within 60s
         onFinish({
-          score: completed ? vocabData.length : matchedIds.length,
+          score: completed ? vocabData.length : totalMatched, 
           passed: completed && timer <= 60,
           time: timer
         });
@@ -343,9 +381,10 @@
         return (
           <div className="text-center p-10 bg-white rounded-xl shadow-lg">
             <h2 className="text-2xl font-bold mb-4">第一關：單字連連看</h2>
-            <p className="mb-6 text-gray-600">請將英文單字與中文解釋配對。</p>
+            <p className="mb-2 text-gray-600">請將英文單字與中文解釋配對。</p>
+            <p className="mb-6 text-blue-600 font-bold bg-blue-50 inline-block px-4 py-1 rounded-full">此關卡將分為兩頁進行</p>
             <div className="flex items-center justify-center gap-2 mb-6 text-orange-600 font-bold">
-              <Clock /> 目標：60秒內完成
+              <Clock /> 目標：總時間 60秒內完成
             </div>
             <button onClick={startGame} className="bg-blue-600 text-white px-8 py-3 rounded-full text-lg hover:bg-blue-700 shadow-lg">開始挑戰</button>
           </div>
@@ -357,25 +396,28 @@
           <div className="text-center p-10 bg-white rounded-xl shadow-lg">
             <h2 className="text-2xl font-bold mb-4">遊戲結束</h2>
             <p className="text-4xl font-mono mb-4">{timer} 秒</p>
-            {timer <= 60 && matchedIds.length === vocabData.length ? (
+            {timer <= 60 && totalMatched === vocabData.length ? (
               <div className="text-green-600 font-bold text-xl mb-6">🎉 挑戰成功！ (Passed)</div>
             ) : (
               <div className="text-red-500 font-bold text-xl mb-6">❌ 挑戰失敗 (需60秒內完成)</div>
             )}
             <button onClick={startGame} className="bg-gray-200 text-gray-700 px-6 py-2 rounded-lg mr-4">重玩</button>
-            <button onClick={() => onFinish({ score: matchedIds.length, passed: timer <= 60, time: timer }, true)} className="bg-blue-600 text-white px-6 py-2 rounded-lg">下一步</button>
+            <button onClick={() => onFinish({ score: totalMatched, passed: timer <= 60, time: timer }, true)} className="bg-blue-600 text-white px-6 py-2 rounded-lg">下一步</button>
           </div>
         );
       }
 
       return (
         <div className="bg-white rounded-xl shadow-lg p-4 h-[80vh] flex flex-col">
-          <div className="flex justify-between items-center mb-4 px-4">
+          <div className="flex justify-between items-center mb-4 px-4 border-b pb-2">
             <div className={`font-mono text-xl font-bold ${timer > 60 ? 'text-red-500' : 'text-blue-600'}`}>
               ⏱ {timer}s
             </div>
-            <div className="text-gray-500">
-              進度: {matchedIds.length} / {vocabData.length}
+            <div className="flex items-center gap-2">
+                <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded">Page {round}/2</span>
+                <span className="text-gray-500 text-sm">
+                  {totalMatched} / {vocabData.length}
+                </span>
             </div>
           </div>
           
